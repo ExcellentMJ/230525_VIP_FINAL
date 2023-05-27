@@ -1,71 +1,187 @@
-# 12214028 김민준
+# import cv2
+# import numpy as np
+#
+# # 동영상 파일 경로
+# video_path = "final.mp4"
+#
+# # 배경 차분을 위한 배경 모델 초기화
+# background_subtractor = cv2.createBackgroundSubtractorMOG2()
+#
+# # 히스토그램 차이 임계값
+# alpha = 0.12
+#
+# # 샷 변화 표시용 함수
+# def draw_shot_change(frame, text):
+#     cv2.putText(frame, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+#
+# # 배경 저장용 함수
+# def save_background(frame, shot_index):
+#     cv2.imwrite(f"shot_bg{shot_index}.jpg", frame)
+#
+# # 동영상 열기
+# video = cv2.VideoCapture(video_path)
+#
+# # 초기 프레임 읽기
+# _, prev_frame = video.read()
+# prev_frame_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
+# prev_frame_gray = cv2.GaussianBlur(prev_frame_gray, (5, 5), 0)
+# prev_hist = cv2.calcHist([prev_frame_gray], [0], None, [256], [0, 256])
+#
+# shot_index = 1
+#
+# while True:
+#     # 현재 프레임 읽기
+#     ret, frame = video.read()
+#     if not ret:
+#         break
+#
+#     # 그레이스케일로 변환
+#     curr_frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+#
+#     # 전처리: 가우시안 블러
+#     curr_frame_gray = cv2.GaussianBlur(curr_frame_gray, (5, 5), 0)
+#     curr_hist = cv2.calcHist([curr_frame_gray], [0], None, [256], [0, 256])
+#
+#     # 배경 차분 수행
+#     mask = background_subtractor.apply(frame)
+#
+#     # 이진화
+#     _, binary_mask = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
+#
+#     # 모폴로지 연산
+#     kernel = np.ones((3, 3), np.uint8)
+#     binary_mask = cv2.morphologyEx(binary_mask, cv2.MORPH_OPEN, kernel)
+#
+#     # 컨투어 검출
+#     contours, _ = cv2.findContours(binary_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+#
+#     # 컨투어를 기반으로 움직이는 객체 검출 및 표시
+#     for contour in contours:
+#         area = cv2.contourArea(contour)
+#         if area > 50:  # 임계값 조정 가능
+#             x, y, w, h = cv2.boundingRect(contour)
+#             cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
+#
+#     # 샷 변화 체크
+#     hist_diff = cv2.compareHist(prev_hist, curr_hist, cv2.HISTCMP_BHATTACHARYYA)
+#     if hist_diff > alpha:
+#         draw_shot_change(frame, "Shot Changed")
+#         save_background(frame, shot_index)
+#         shot_index += 1
+#
+#     # 현재 프레임을 이전 프레임으로 설정
+#     prev_frame_gray = curr_frame_gray.copy()
+#     prev_hist = curr_hist.copy()
+#
+#     # 화면에 표시
+#     cv2.imshow("Video", frame)
+#     if cv2.waitKey(5) == ord("q"):
+#         break
+#
+# # 동영상 종료 후 정리
+# video.release()
+# cv2.destroyAllWindows()
+
 import cv2
 import numpy as np
 
-# 비디오 파일 경로
+# 동영상 파일 경로
 video_path = "final.mp4"
 
-# 동영상 파일 열기
+# 배경 차분을 위한 배경 모델 초기화
+background_subtractor = cv2.createBackgroundSubtractorMOG2()
+
+# 히스토그램 차이 임계값
+alpha = 0.12
+# 윤곽선 검출을 위한 모션 임계값
+motion_threshold = 500
+#
+shot_index = 1
+# 샷 변화 표시용 함수
+def draw_shot_change(frame, text):
+    cv2.putText(frame, text, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
+
+# 배경 저장용 함수
+def save_background(frame, shot_index):
+    cv2.imwrite(f"shot_bg{shot_index}.jpg", frame)
+# 윤곽선 검출을 위한 모션 임계값
+
+# # 초기 프레임 읽기
+# # 동영상 열기
+video = cv2.VideoCapture(video_path)
+_, prev_frame = video.read()
+prev_frame_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
+prev_frame_gray = cv2.GaussianBlur(prev_frame_gray, (5, 5), 0)
+prev_hist = cv2.calcHist([prev_frame_gray], [0], None, [256], [0, 256])
+
+# Dense Optical Flow 파라미터
+dense_flow_params = dict(pyr_scale=0.5, levels=3, winsize=15, iterations=3, poly_n=5, poly_sigma=1.1, flags=0)
+
+# 동영상 열기
 video = cv2.VideoCapture(video_path)
 
-# 이전 프레임의 히스토그램
-previous_hist = None
-# 이전 프레임
-previous_frame = None
-
-
-
-# 재생 속도 조절을 위한 딜레이 계산
-delay = 10  # 원본 속도로 재생
-
-
-# 히스토그램 차이를 기반으로 샷 변경 여부를 확인할 임계값
-threshold = 0.0969
-
-while video.isOpened():
-    # 프레임 읽기
+while True:
+    # 현재 프레임 읽기
     ret, frame = video.read()
     if not ret:
         break
-    frame_copy = frame
+    # 그레이스케일로 변환
+    curr_frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
 
-    # 현재 프레임을 그레이스케일로 변환
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    # 전처리: 가우시안 블러
+    curr_frame_gray = cv2.GaussianBlur(curr_frame_gray, (5, 5), 0)
+    curr_hist = cv2.calcHist([curr_frame_gray], [0], None, [256], [0, 256])
+    # 배경 차분 수행
+    mask = background_subtractor.apply(frame)
 
-    # 현재 프레임의 히스토그램 계산
-    hist = cv2.calcHist([gray], [0], None, [256], [0, 256])
-    hist = cv2.normalize(hist, hist, 0, 1, cv2.NORM_MINMAX)
+    # 이진화
+    _, binary_mask = cv2.threshold(mask, 127, 255, cv2.THRESH_BINARY)
 
-    # 여기서부터는 히스토그램 계산을 이용해서 샷 바뀔때 인지하는 코드
-    if previous_hist is not None:
-        # 이전 프레임과의 히스토그램 차이 계산. 바타차야 거리 -> 계산속도는 느리지만 가장 정확한 알고리즘
-        diff = cv2.compareHist(previous_hist, hist, cv2.HISTCMP_BHATTACHARYYA)
+    # 모폴로지 연산
+    kernel = np.ones((3, 3), np.uint8)
+    binary_mask = cv2.morphologyEx(binary_mask, cv2.MORPH_OPEN, kernel)
+    # 샷 변화 체크
+    hist_diff = cv2.compareHist(prev_hist, curr_hist, cv2.HISTCMP_BHATTACHARYYA)
+    if hist_diff > alpha:
+        draw_shot_change(frame, "Shot Changed")
+        save_background(frame, shot_index)
+        shot_index += 1
+    # 컨투어 검출
+    contours, _ = cv2.findContours(binary_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-        if diff > threshold:
-            # 샷 변경이 감지된 경우...(400,30)정도 해야 우측 상단에 뿌려줌..흰색
-            cv2.putText(frame_copy, "Shot Changed", (400, 40), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
+    # 컨투어를 기반으로 움직이는 객체 검출 및 표시
+    for contour in contours:
+        area = cv2.contourArea(contour)
+        if area > motion_threshold:
+            x, y, w, h = cv2.boundingRect(contour)
+            cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
 
-        # diff = cv2.absdiff(gray, previous_frame)
-        # # 히스토그램 차이가 발생한 영역의 윤곽선 검출
-        # _, thresholded = cv2.threshold(diff, 10, 255, cv2.THRESH_BINARY)
-        # contours, _ = cv2.findContours(thresholded, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        #
-        # # 윤곽선 그리기
-        # for contour in contours:
-        #     # 윤곽선을 둘러싼 직사각형 그리기
-        #     x, y, w, h = cv2.boundingRect(contour)
-        #     cv2.rectangle(frame_copy, (x, y), (x + w, y + h), (0, 0, 255), 2)
+            # Dense Optical Flow 계산
+            prev_frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            prev_roi = prev_frame_gray[y:y + h, x:x + w]
 
-    # 현재 프레임의 히스토그램을 이전 프레임의 히스토그램으로 설정
-    previous_frame = gray.copy()
-    previous_hist = hist
+            curr_frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            curr_roi = curr_frame_gray[y:y + h, x:x + w]
 
-    # 화면에 프레임 출력
-    cv2.imshow("Video", frame_copy)
+            flow = cv2.calcOpticalFlowFarneback(prev_roi, curr_roi, None, **dense_flow_params)
 
-    if cv2.waitKey(delay) & 0xFF == ord('q'):
+            # 화살표 그리기
+            step = 10
+            for i in range(0, h, step):
+                for j in range(0, w, step):
+                    dx, dy = flow[i, j]
+                    cv2.arrowedLine(frame, (x + j, y + i), (x + j + int(dx), y + i + int(dy)), (255, 0, 0), 2)
+
+    # 현재 프레임을 이전 프레임으로 설정
+    prev_frame_gray = curr_frame_gray.copy()
+    prev_hist = curr_hist.copy()
+
+    # 화면에 표시
+
+    cv2.imshow("Video", frame)
+    if cv2.waitKey(1) == ord("q"):
         break
 
-# 종료 시 리소스 해제
+# 동영상 종료 후 정리
 video.release()
 cv2.destroyAllWindows()
